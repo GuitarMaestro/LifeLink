@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <title>LifeLink</title>
+        <link rel="stylesheet" href="style.css">
+    </head>
+
+    <body>
+        <div class="header">
+            <h1>LifeLink</h1>
+            <p>Built for people with memory or recognition difficulties, and the caregivers who support them.</p>
+
+        </div>
+
+        <div class="nav-bar">
+            <button class="tab-button" id="tab-people" onclick="showPage('people')">People</button>
+            <button class="tab-button" id="tab-tree" onclick="showPage('tree')">Family Tree</button>
+            <button class="tab-button" id="tab-contact" onclick="showPage('settings')">Settings</button>
+        </div>
+
+        <div class="content">
+            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
+            <input 
+                type="text"
+                id="search-input"
+                placeholder="Search for a person"
+                oninput="filterPeople()"
+                style="margin-bottom:0;">
+                <button class="btn" onclick="openNewPersonPopup()">Add person</button>
+
+
+            </div>
+
+            <div class="photo_ofperson" id="person-photo">
+
+            </div>
+
+            <div id="page_details" class="hidden">
+                <button class="backbutton" onclick="showPage('people')">Back to people</button>
+                <h1 id="detail_name"></h1>
+                <p id="relations" style="color:#777777;"></p>
+
+                <label for="photo-upload" class="custom-photo">
+                    Choose photos
+                </label>
+                <input type="file" id="photo-upload" accept="image/*,.heic,.heif,.avif,.tif,.tiff,.bmp,.webp" multiple/>
+                <p style="color:#999999; font-size:13px; margin-top:-10px;">You can also paste a copied image with Ctrl+V (or Cmd+V on Mac).</p>
+                <div id="photo-grid"></div>
+
+                <div class="notes-piece">Notes</div>
+                <div id="notes"></div>
+
+                
+                <!--FEATURE: ADDING NOTE QUESTIONS! PATIENTS CAN PUT THE CHARACTERISTICS THE PERSON HAS TO RECOGNIZE THEM MORE EFFICIENTLY!!-->
+               
+                <label for="note-voice">How do they sound like?</label>
+                <textarea id="note-voice" rows="3" placeholder="Deep man voice, squeaky voice etc"></textarea>
+                <label for="note-hair">Hair features</label>
+                <textarea id="note-hair" rows="3" placeholder="Black hair, brown hair, yellow dye hair etc"></textarea>
+                <label for="note-physical">Distinct Physical features</label>
+                <textarea id="note-physical" rows="3" placeholder="This can be tattoos or specific tattoo like a snake tattoo"></textarea>
+                <label for="note-body">Body Type</label>
+                <textarea id="note-body" rows="3" placeholder="Are they skinny, have muscle body etc"></textarea>
+                <label for="note-accessories">Accessories they wear</label>
+                <textarea id="note-accessories" rows="3" placeholder="A silver chain tied around their neck etc"></textarea>
+                <label for="note-environment">Environment you see this person in?</label>
+                <textarea id="note-environment" rows="3" placeholder="Do you see this person most frequently where"></textarea>
+                <label for="note">Add a note:</label>
+                <textarea id="note" rows="3" placeholder="Any other notes about this person?"></textarea>
+               
+                <button class="btn" onclick="addNote()">Add Note</button>
+
+                <button class="delete_button" id="remove-person-button" onclick="removePerson()">Remove person</button>
+            </div>
+
+           
+      
+
+
+            <div id="page_tree" class="hidden">
+                <div class="section-title" style="margin-top: 0;">Family Tree</div>
+                <p style="color:#777777">New people are linked to a parent if you are related to them. People like friends would have a separate branch. Scroll or use + / - to zoom.</p>
+                <div class="tree-viewport" id="tree-viewport">
+                    <div class="tree-controls">
+                        <button onclick="zoomTree(1.2)">+</button>
+                        <button onclick="zoomTree(1/1.2)">-</button>
+                        <button onclick="centerTreeOnMe()">Me</button>
+                    </div>
+                    <div class="tree-canvas" id="tree-container"></div>
+                </div>
+            </div>
+
+            <div id="page-settings" class="hidden">
+                <div class="section-title" style="margin-top: 0;">Settings</div>
+
+                <div class="settings_of_items">
+                    <div class="title">Log Out?</div>
+                    <div class="description">By clicking this button, you are logging out of your account! But you can always sign in later!</div>
+                    <button class="delete_button" id="logout-button" style="display:none;" onclick="location.href='index.html'">Log Out</button>
+                    
+                </div>
+            </div>
+
+        </div>
+    
+
+<script>
+
+    const colorPalette = ["#6C5CE7", "#00B894", "#FD79A8", "#E17055", "#0984E3", "#00B4D8", "#F9A826"];
+    
+    const myID = 0;
+
+    let people = [
+        {
+            id: myID,
+            name: "Me",
+            relation: "This is you",
+            color: "#333333",
+            motherId: null,
+            fatherId: null,
+            stepmotherIds: [],
+            stepfatherIds: [],
+            spouseIds: [],
+            photos: [],
+            notes: []
+        
+        }
+    ];
+
+    let nextPersonId = 1;
+
+    let currentPersonId = null;
+
+
+
+
+
+
+    //CHALLENGE I HAVE FACED 1: Earlier the website loses data when refreshed. To prevent that I implemented a save data function and load data function to store it in the indexedDB.  
+
+    let dbPromise = null;
+
+    function openDatabase() {
+        if (dbPromise) return dbPromise;
+        dbPromise = new Promise(function (resolve, reject) {
+            const request = indexedDB.open("lifelink-db", 1);
+            request.onupgradeneeded = function () { request.result.createObjectStore("store"); };
+            request.onsuccess = function () { resolve(request.result); };
+            request.onerror = function () { reject(request.error); };
+        });
+        return dbPromise;
+    }
+
+    function saveData() {
+        return openDatabase().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                const tx = db.transaction("store", "readwrite");
+                tx.objectStore("store").put({ people: people, nextPersonId: nextPersonId }, "data");
+                tx.oncomplete = resolve;
+                tx.onerror = function () { reject(tx.error); };
+            });
+        }).catch(function (err) { console.error("Could not save:", err); });
+    }
+
+    function loadData() {
+        return openDatabase().then(function (db) {
+            return new Promise(function (resolve) {
+                const request = db.transaction("store").objectStore("store").get("data");
+                request.onsuccess = function () { resolve(request.result || null); };
+                request.onerror = function () { resolve(null); };
+            });
+        }).catch(function () { return null; });
+    }
+
+    function showPage(pageName) {
+
+        document.getElementById("search-input").parentElement.classList.add("hidden");
+        document.getElementById("person-photo").classList.add("hidden");
+        document.getElementById("page_tree").classList.add("hidden");
+        document.getElementById("page-settings").classList.add("hidden");
+        document.getElementById("page_details").classList.add("hidden");
+
+
+        document.getElementById("tab-people").classList.remove("active");
+        document.getElementById("tab-tree").classList.remove("active");
+        document.getElementById("tab-contact").classList.remove("active");
+
+        document.getElementById("logout-button").style.display = (pageName === "settings") ? "" : "none";
+
+        if (pageName === "people") {
+            document.getElementById("search-input").parentElement.classList.remove("hidden");
+            document.getElementById("person-photo").classList.remove("hidden");
+            document.getElementById("tab-people").classList.add("active");
+            renderPersonGrid();
+        } else if (pageName === "tree") {
+            document.getElementById("page_tree").classList.remove("hidden");
+            document.getElementById("tab-tree").classList.add("active");
+            renderFamilyTree();
+        } else if (pageName === "settings") {
+            document.getElementById("page-settings").classList.remove("hidden");
+            document.getElementById("tab-contact").classList.add("active");
+        } else if (pageName === "details") {
+            document.getElementById("page_details").classList.remove("hidden");
+        }
+    }
+
+    function showDetailsPage(personId) {
+
+        currentPersonId = personId;
+        showPage("details");
+        renderDetailPage();
+
+    }
+
+
+    // Challenge #2: ThE SEARCH INPUT DID NOT WORK WHEN I WAS SEARCHING UP EACH CHARACTERISTIC. TO SOLVE THIS, I HAD IMPLEMENTED A FOR LOOP WITH THE PERSON MATCHES PERSON CODE TO SEE EACH PERSON'S CARD NOTES.
+
+
+
+    function renderPersonGrid() {
+        const searchTerm = document.getElementById("search-input").value.toLowerCase();
+        const grid = document.getElementById("person-photo");
+        grid.innerHTML = "";
+
+
+        for (let i = 0; i < people.length; i++) {
+            const person = people[i];
+
+            if (searchTerm !== "" && !PersonMatchesPerson(person, searchTerm)) {
+                continue;
+            }
+
+            const card = document.createElement("div");
+            card.className = "person-card";
+            card.onclick = function() {
+                showDetailsPage(person.id);
+            };
+
+            let thumbnailHtml;
+
+            if(person.photos.length > 0) {
+                thumbnailHtml = 
+                '<div class="color-top" style="background-color:' + person.color + '">' +
+                '<img src="' + person.photos[0] + '" alt="Person Photo">' +
+                '</div>';
+
+            } else {
+                thumbnailHtml =
+                '<div class="color-top" style="background-color:' + person.color + '">' +
+                getInitials(person.name) +
+                '</div>';
+            }
+
+            card.innerHTML =
+            thumbnailHtml +
+            '<div class="card-body">' +
+            '<div class="person-name">' + escapeText(person.name) + '</div>' +
+            '</div>';
+
+            grid.appendChild(card);
+        }
+    }
+
+    function PersonMatchesPerson(person, searchTerm) {
+        if (person.name.toLowerCase().includes(searchTerm)) {
+            return true;
+        }
+        if (person.relation.toLowerCase().includes(searchTerm)) {
+            return true;
+        }
+
+        for (let i = 0; i < person.notes.length; i++) {
+            if (person.notes[i].text.toLowerCase().includes(searchTerm)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function filterPeople() {
+        renderPersonGrid();
+    }
+
+    function getInitials(name) {
+        const names = name.split(" ");
+        let initials = "";
+        for (let i = 0; i < names.length; i++) {
+            if (names[i].length > 0) {
+                initials += names[i][0].toUpperCase();
+            }
+        }
+        return initials;
+    }
+
+    function openNewPersonPopup() {
+        const name = prompt("Enter the person's name:");
+        if (!name || name.trim() === "") {
+            return;
+        }
+
+        if (personNameAlreadyExists(name)) {
+            alert("A person with this name already exists.");
+            return;
+        }
+
+        const relation = prompt("Enter your relation to this person (e.g. mother, half sister mother, sibling wife, Theo daughter, cousin):");
+        if (relation === null) {
+            return;
+        }
+
+        const color = colorPalette[people.length % colorPalette.length];
+        const link = resolveFamilyLink(relation);
+
+        if (link.type === "missing-anchor") {
+            alert("Add your " + link.role + " first, then you can add their " + relation + ".");
+            return;
+        }
+        if (link.type === "unclear-anchor") {
+            alert("There's more than one " + link.role + " on the tree, so the app can't tell which one you mean. Try using their name instead, like \"Theo " + relation.split(" ").slice(-1)[0] + "\".");
+            return;
+        }
+        if (link.type === "anchor-not-found") {
+            alert("Couldn't find anyone named \"" + link.text + "\" on the tree. Add them first, or check the spelling.");
+            return;
+        }
+        if (link.type === "half-sibling-unclear") {
+            alert("Which side is " + name + " related on? Try \"half sister mother\" or \"half brother father\".");
+            return;
+        }
+        if (link.type === "none") {
+            alert("Couldn't figure out how " + name + " is related to you. Try using a different relation, like \"mother\", \"sister\", or \"Theo daughter\".");
+            return;
+        }
+
+
+
+
+       
+        let newMotherId = null;
+        let newFatherId = null;
+        let flipSlot = null;
+        let flipAnchorId = null;
+        let spouseAnchorId = null;
+        let niblingUnclear = false;
+        let newStepFatherIds = [];
+        let newStepMotherIds = [];
+
+        if (link.type === "become-parent") {
+
+            flipSlot = link.slot;
+            flipAnchorId = link.anchorId;
+
+        } else if (link.type === "become-parent-uncertain") {
+            const anchor = getPersonById(link.anchorId);
+            if (anchor.motherId === null) {
+                flipSlot = "motherId";
+            } else if (anchor.fatherId === null) {
+                flipSlot = "fatherId";
+            } else {
+                alert("That person already has both a mother and father linked. Try typing \"stepmother\" or \"stepfather\" instead.");
+                return;
+            }
+            flipAnchorId = link.anchorId;
+
+        } else if (link.type === "sibling-of") {
+    
+            const anchor = getPersonById(link.anchorId);
+            newMotherId = anchor.motherId;
+            newFatherId = anchor.fatherId;
+            newStepMotherIds = anchor.stepmotherIds.slice();
+            newStepFatherIds = anchor.stepfatherIds.slice();
+
+        } else if (link.type === "half-sibling") {
+            if (link.slot === "motherId") {
+                newMotherId = link.sharedId;
+            } else if (link.slot === "fatherId") {
+                newFatherId = link.sharedId;
+            } else if (link.slot === "stepmotherId") {
+                newStepMotherIds = [link.sharedId];
+            } else if (link.slot === "stepfatherId") {
+                newStepFatherIds = [link.sharedId];
+            }
+
+        } else if (link.type === "child-of") {
+            if (link.slot === "motherId") {
+                newMotherId = link.anchorId;
+            } else {
+                newFatherId = link.anchorId;
+            }
+
+        } else if (link.type === "nibling-of") {
+         
+            const anchor = getPersonById(link.anchorId);
+            const siblings = getSiblingsOf(anchor.id);
+            if (siblings.length === 1) {
+                newMotherId = siblings[0].id;
+            } else {
+                niblingUnclear = true;
+            }
+
+        } else if (link.type === "spouse-of") {
+          
+            spouseAnchorId = link.anchorId;
+        }
+    
+
+        const newPerson = {
+            id: nextPersonId,
+            name: name,
+            relation: relation,
+            color: color,
+            motherId: newMotherId,
+            fatherId: newFatherId,
+            stepmotherIds: newStepMotherIds,
+            stepfatherIds: newStepFatherIds,
+            spouseIds: [],
+            photos: [],
+            notes: []
+        };
+
+        nextPersonId = nextPersonId + 1;
+
+        people.push(newPerson);
+
+        if (flipSlot !== null) {
+            const anchor = getPersonById(flipAnchorId);
+            if (flipSlot === "stepmotherId") anchor.stepmotherIds.push(newPerson.id);
+            else if (flipSlot === "stepfatherId") anchor.stepfatherIds.push(newPerson.id);
+            else anchor[flipSlot] = newPerson.id;
+        }
+
+        if (spouseAnchorId !== null) {
+            const spouseAnchor = getPersonById(spouseAnchorId);
+            spouseAnchor.spouseIds.push(newPerson.id);
+            newPerson.spouseIds.push(spouseAnchor.id);
+        }
+
+        saveData();
+
+        renderPersonGrid();
+
+        if (niblingUnclear) {
+            alert(name + " was added, but the app can't tell which sibling they belong to. Try naming the sibling directly instead, like \"Mateo sister or Joseph brother\".");
+        }
+    }
+
+
+    function resolveFamilyLink(relationText) {
+
+        const cleaned = relationText
+            .toLowerCase()
+            .replace(/[^a-z\s]/g, " ")
+            .replace(/\b(my|your|our|the|a|an)\b/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+
+        if (cleaned.indexOf("half sister") !== -1 || cleaned.indexOf("half brother") !== -1) {
+            const me = getPersonById(myID);
+            let slot = null;
+
+            if (cleaned.indexOf("stepmother") !== -1 || cleaned.indexOf("stepmom") !== -1) {
+                slot = "stepmotherId";
+            } else if (cleaned.indexOf("stepfather") !== -1 || cleaned.indexOf("stepdad") !== -1) {
+                slot = "stepfatherId";
+            } else if (cleaned.indexOf("mother") !== -1 || cleaned.indexOf("mom") !== -1) {
+                slot = "motherId";
+            } else if (cleaned.indexOf("father") !== -1 || cleaned.indexOf("dad") !== -1) {
+                slot = "fatherId";
+            } else if (me.motherId !== null && me.fatherId === null) {
+                slot = "motherId";
+            } else if (me.fatherId !== null && me.motherId === null) {
+                slot = "fatherId";
+            } else if (me.stepmotherIds.length === 1 && me.stepfatherIds.length === 0) {
+                slot = "stepmotherId";
+            } else if (me.stepfatherIds.length === 1 && me.stepmotherIds.length === 0) {
+                slot = "stepfatherId";
+            }
+
+       
+            if (slot === null) {
+                return { type: "half-sibling-unclear" };
+            }
+
+            let sharedId = null;
+            if (slot === "stepmotherId") {
+                sharedId = me.stepmotherIds.length === 1 ? me.stepmotherIds[0] : null;
+            } else if (slot === "stepfatherId") {
+                sharedId = me.stepfatherIds.length === 1 ? me.stepfatherIds[0] : null;
+            } else {
+                sharedId = me[slot];
+            }
+
+            if (sharedId === null || sharedId === undefined) {
+                return { type: "half-sibling-unclear" };
+            }
+            return { type: "half-sibling", slot: slot, sharedId: sharedId };
+        }
+
+        const roleWords = {
+            mother: "mother", mom: "mother", mum: "mother",
+            father: "father", dad: "father",
+            stepmother: "stepmother",
+            stepmom: "stepmother",
+            stepfather: "stepfather",
+            stepdad: "stepfather",
+            parent: "parent",
+            sister: "sister", brother: "brother", sibling: "sibling",
+            son: "son", daughter: "daughter", child: "child", kid: "child", children: "child",
+            nephew: "nephew", niece: "niece",
+            wife: "spouse", husband: "spouse", spouse: "spouse",
+            cousin: "cousin"
+        };
+
+        const words = cleaned.split(" ").filter(function (w) { return w.length > 0; });
+
+   
+
+        let roleIndex = -1;
+        let role = null;
+        for (let i = words.length - 1; i >= 0; i--) {
+            if (roleWords[words[i]]) {
+                roleIndex = i;
+                role = roleWords[words[i]];
+                break;
+            }
+        }
+
+        if (role === null) {
+            return { type: "none" };
+        }
+
+        if (role === "cousin") {
+         
+            return { type: "none" };
+        }
+
+        const anchorWords = words.slice(0, roleIndex);
+
+        if (anchorWords.length === 0) {
+            return resolveStep(role, myID, null);
+        }
+
+        const anchorResult = findAnchor(anchorWords.join(" "));
+
+        if (anchorResult.type === "missing") {
+            return { type: "missing-anchor", role: anchorResult.role };
+        }
+        if (anchorResult.type === "unclear") {
+            return { type: "unclear-anchor", role: anchorResult.role };
+        }
+        if (anchorResult.type === "not-found") {
+            return { type: "anchor-not-found", text: anchorWords.join(" ") };
+        }
+
+        return resolveStep(role, anchorResult.person.id, anchorResult.role || null);
+    }
+
+    
+    function findAnchor(anchorText) {
+        const me = getPersonById(myID);
+
+        if (anchorText === "mother" || anchorText === "mom" || anchorText === "mum") {
+            return me.motherId !== null
+                ? { type: "found", person: getPersonById(me.motherId), role: "mother" }
+                : { type: "missing", role: "mother" };
+        }
+        if (anchorText === "father" || anchorText === "dad") {
+            return me.fatherId !== null
+                ? { type: "found", person: getPersonById(me.fatherId), role: "father" }
+                : { type: "missing", role: "father" };
+        }
+        if (anchorText === "sister" || anchorText === "brother" || anchorText === "sibling") {
+            const sibs = getSiblingsOf(myID);
+            if (sibs.length === 1) return { type: "found", person: sibs[0] };
+            if (sibs.length === 0) return { type: "missing", role: "sibling" };
+            return { type: "unclear", role: "sibling" };
+        }
+        if (anchorText === "cousin") {
+            const cousins = getCousinsOf(myID);
+            if (cousins.length === 1) return { type: "found", person: cousins[0] };
+            if (cousins.length === 0) return { type: "missing", role: "cousin" };
+            return { type: "unclear", role: "cousin" };
+        }
+
+        // CHALLENGE #3: EARLIER THE STEPMOTHERS AND THE STEPFATHERS WOULD REPLACE THEIR CURRENT SPOUSE, TO PREVENT THIS FROM HAPPENING. I IMPLEMENTED A SOLUTION WHERE THE STEPMOTHERS AND THE STEPFATHERS HAVE THEIR OWN UNIQUE ARRAY ALLOWING MULTIPLE OF THESE TO BE ASSOCIATED WITH ONE PERSON.
+        if (anchorText === "stepmother" || anchorText === "stepmom") {
+            if (me.stepmotherIds.length === 1) return { type: "found", person: getPersonById(me.stepmotherIds[0]), role: "stepmother" };
+            if (me.stepmotherIds.length === 0) return { type: "missing", role: "stepmother" };
+            return { type: "unclear", role: "stepmother" };
+        }
+        if (anchorText === "stepfather" || anchorText === "stepdad") {
+            if (me.stepfatherIds.length === 1) return { type: "found", person: getPersonById(me.stepfatherIds[0]), role: "stepfather" };
+            if (me.stepfatherIds.length === 0) return { type: "missing", role: "stepfather" };
+            return { type: "unclear", role: "stepfather" };
+        }
+
+
+        const matches = people.filter(function (p) {
+            return p.name.toLowerCase().indexOf(anchorText) !== -1;
+        });
+        if (matches.length === 1) return { type: "found", person: matches[0] };
+        if (matches.length === 0) return { type: "not-found" };
+        return { type: "unclear", role: "name \"" + anchorText + "\"" };
+    }
+
+
+    function resolveStep(role, anchorId, anchorRole) {
+        if (role === "mother") {
+            return { type: "become-parent", slot: "motherId", anchorId: anchorId };
+        }
+
+        // CHALLENGE 4: IMPLEMENTED A SOLUTION WHERE STEPPARENTS HAVE THEIR OWN ARRAY SO THAT THEY DO NOT REPLACE THE ORIGINAL PARENT.
+        if (role === "stepmother") {
+            return { type: "become-parent", slot: "stepmotherId", anchorId: anchorId };
+        }
+        if (role === "stepfather") {
+            return { type: "become-parent", slot: "stepfatherId", anchorId: anchorId };
+        }
+        if (role === "father") {
+            return { type: "become-parent", slot: "fatherId", anchorId: anchorId };
+        }
+        if (role === "parent") {
+            return { type: "become-parent-uncertain", anchorId: anchorId };
+        }
+        if (role === "sister" || role === "brother" || role === "sibling") {
+            return { type: "sibling-of", anchorId: anchorId };
+        }
+        if (role === "son" || role === "daughter" || role === "child") {
+            const slot = (anchorRole === "father" || anchorRole === "stepfather") ? "fatherId" : "motherId";
+            return { type: "child-of", slot: slot, anchorId: anchorId };
+        }
+        if (role === "nephew" || role === "niece") {
+            return { type: "nibling-of", anchorId: anchorId };
+        }
+        if (role === "spouse") {
+            return { type: "spouse-of", anchorId: anchorId };
+        }
+        return { type: "none" };
+    }
+
+
+    function getSiblingsOf(personId) {
+        const person = getPersonById(personId);
+        if (!person) return [];
+        return people.filter(function (p) {
+            if (p.id === personId) return false;
+            return (person.motherId !== null && p.motherId === person.motherId) ||
+                   (person.fatherId !== null && p.fatherId === person.fatherId);
+        });
+    }
+
+
+    function getCousinsOf(personId) {
+        const person = getPersonById(personId);
+        if (!person) return [];
+
+        const parentIds = [];
+        if (person.motherId !== null) parentIds.push(person.motherId);
+        if (person.fatherId !== null) parentIds.push(person.fatherId);
+
+        let auntsAndUncles = [];
+        for (let i = 0; i < parentIds.length; i++) {
+            auntsAndUncles = auntsAndUncles.concat(getSiblingsOf(parentIds[i]));
+        }
+
+        let cousins = [];
+        for (let i = 0; i < auntsAndUncles.length; i++) {
+            const theirKids = people.filter(function (p) {
+                return p.motherId === auntsAndUncles[i].id || p.fatherId === auntsAndUncles[i].id;
+            });
+            cousins = cousins.concat(theirKids);
+        }
+
+        const uniqueCousins = [];
+        for (let i = 0; i < cousins.length; i++) {
+            if (uniqueCousins.indexOf(cousins[i]) === -1) {
+                uniqueCousins.push(cousins[i]);
+            }
+        }
+        return uniqueCousins;
+    }
+
+    function personNameAlreadyExists(name) {
+        const NameToCheck = name.trim().toLowerCase();
+        for (let i = 0; i < people.length; i++) {
+            if (people[i].name.trim().toLowerCase() === NameToCheck) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function getPersonById(id) {
+        for (let i = 0; i < people.length; i++) {
+            if (people[i].id === id) {
+                return people[i];
+            }
+        }
+        return null;
+    }
+
+    function getCurrentPerson() {
+        for(let i=0; i < people.length; i++){
+            if(people[i].id === currentPersonId){
+                return people[i];
+            }
+        }
+        return null;
+    }
+
+    function renderDetailPage(){
+        const person = getCurrentPerson();
+        
+        if(person === null){
+            showPage("people");
+            return;
+        }
+
+        document.getElementById("detail_name").textContent = person.name;
+        document.getElementById("relations").textContent = person.relation;
+
+        document.getElementById("remove-person-button").style.display = person.id === myID ? "none" : "";
+
+
+        const photoGrid = document.getElementById("photo-grid");
+
+        photoGrid.innerHTML = "";
+
+        for(let i = 0; i < person.photos.length; i++){
+            const img = document.createElement("img");
+            img.src = person.photos[i];
+            photoGrid.appendChild(img);
+        }
+
+
+        const NotesList = document.getElementById("notes");
+
+        NotesList.innerHTML = "";
+
+        if(person.notes.length === 0 ) {
+            NotesList.innerHTML = "<p style='color:#999999'>No Notes about this person.</p>";
+        } else {
+            for(let i = person.notes.length - 1; i >= 0; i--){
+                const notes = person.notes[i];
+
+                const noteDiv = document.createElement("div");
+
+                noteDiv.className = "note";
+
+                noteDiv.innerHTML = "<div><b>" + escapeText(notes.label || "Note") + ":</b> " + escapeText(notes.text) + "</div>";
+
+                NotesList.appendChild(noteDiv);
+            }
+        }
+
+        noteFields.forEach(function (field) {
+            document.getElementById(field.id).value = "";
+        });
+    }
+
+    const noteFields = [
+        { id: "note-voice", label: "Voice" },
+        { id: "note-hair", label: "Hair features" },
+        { id: "note-physical", label: "Distinct physical features" },
+        { id: "note-body", label: "Body type" },
+        { id: "note-accessories", label: "Accessories" },
+        { id: "note-environment", label: "Where you see them" },
+        { id: "note", label: "Other notes" }
+    ];
+
+    function addNote(){
+        const person = getCurrentPerson();
+        if (person === null) return;
+
+        const today = new Date();
+        let added = false;
+
+        noteFields.forEach(function (field) {
+            const text = document.getElementById(field.id).value.trim();
+            if (text === "") return;
+            person.notes.push({ label: field.label, text: text, date: today.toLocaleDateString() });
+            added = true;
+        });
+
+        if (!added) return;
+        saveData();
+        renderDetailPage();
+    }
+
+    function removePerson() {
+        const person = getCurrentPerson();
+        if (person === null || person.id === myID) return;
+
+        const sure = confirm("Remove " + person.name + "? This cannot be undone.");
+        if (!sure) return;
+
+        people = people.filter(function (p) { return p.id !== person.id; });
+
+        people.forEach(function (p) {
+            if (p.motherId === person.id) p.motherId = null;
+            if (p.fatherId === person.id) p.fatherId = null;
+            p.stepmotherIds = p.stepmotherIds.filter(function (id) { return id !== person.id; });
+            p.stepfatherIds = p.stepfatherIds.filter(function (id) { return id !== person.id; });
+            p.spouseIds = p.spouseIds.filter(function (id) { return id !== person.id; });
+        });
+
+        currentPersonId = null;
+        saveData();
+        showPage("people");
+    }
+
+  
+    const photoMimeByExt = {
+        jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
+        webp: "image/webp", bmp: "image/bmp", svg: "image/svg+xml", avif: "image/avif",
+        tif: "image/tiff", tiff: "image/tiff", heic: "image/heic", heif: "image/heif"
+    };
+
+    function loadScriptOnce(src) {
+        return new Promise(function (resolve, reject) {
+            const s = document.createElement("script");
+            s.src = src;
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+        });
+    }
+
+    function convertPhoto(file, callback) {
+        const ext = (file.name || "").split(".").pop().toLowerCase();
+
+        if (ext === "heic" || ext === "heif" || file.type === "image/heic" || file.type === "image/heif") {
+            loadScriptOnce("https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js")
+                .then(function () { return heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 }); })
+                .then(function (result) { callback(Array.isArray(result) ? result[0] : result); })
+                .catch(function () { callback(null); });
+        } else if (ext === "tif" || ext === "tiff") {
+            Promise.all([file.arrayBuffer(), loadScriptOnce("https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.js")])
+                .then(function (parts) {
+                    const buffer = parts[0];
+                    const ifds = UTIF.decode(buffer);
+                    UTIF.decodeImage(buffer, ifds[0]);
+                    const rgba = UTIF.toRGBA8(ifds[0]);
+                    const canvas = document.createElement("canvas");
+                    canvas.width = ifds[0].width;
+                    canvas.height = ifds[0].height;
+                    canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(rgba), canvas.width, canvas.height), 0, 0);
+                    canvas.toBlob(callback, "image/jpeg", 0.9);
+                })
+                .catch(function () { callback(null); });
+        } else {
+            callback(null);
+        }
+    }
+
+    function readPhotoFile(file, callback, alreadyConverted) {
+        const reader = new FileReader();
+        reader.onerror = function () { callback(null); };
+        reader.onload = function (event) {
+            let dataUrl = event.target.result;
+
+            
+            if (dataUrl.indexOf("data:application/octet-stream") === 0 || dataUrl.indexOf("data:;") === 0) {
+                const ext = (file.name || "").split(".").pop().toLowerCase();
+                dataUrl = dataUrl.replace(/^data:[^;]*;/, "data:" + (photoMimeByExt[ext] || "image/jpeg") + ";");
+            }
+
+            const img = new Image();
+            img.onload = function () {
+                
+                if (!img.naturalWidth || /^data:image\/(gif|svg)/.test(dataUrl)) {
+                    callback(dataUrl);
+                    return;
+                }
+                
+                
+                const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+                const canvas = document.createElement("canvas");
+                canvas.width = Math.round(img.naturalWidth * scale);
+                canvas.height = Math.round(img.naturalHeight * scale);
+                const ctx = canvas.getContext("2d");
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                try {
+                    callback(canvas.toDataURL("image/jpeg", 0.9));
+                } catch (err) {
+                    callback(dataUrl);
+                }
+            };
+            img.onerror = function () {
+                if (alreadyConverted) { callback(null); return; }
+                
+                convertPhoto(file, function (blob) {
+                    if (!blob) { callback(null); return; }
+                    readPhotoFile(blob, callback, true);
+                });
+            };
+            img.src = dataUrl;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function addPhoto() {
+        const person = getCurrentPerson();
+        if (person === null) return;
+
+        const fileInput = document.getElementById("photo-upload");
+        const files = Array.from(fileInput.files);
+        if (files.length === 0) return;
+        addPhotoFiles(files, function () { fileInput.value = ""; });
+    }
+    document.getElementById("photo-upload").addEventListener("change", addPhoto);
+
+    function addPhotoFiles(files, onDone) {
+        const person = getCurrentPerson();
+        if (person === null || files.length === 0) {
+            if (onDone) onDone();
+            return;
+        }
+
+        let remaining = files.length;
+        function oneDone() {
+            remaining = remaining - 1;
+            if (remaining === 0) {
+                saveData();
+                renderDetailPage();
+                if (onDone) onDone();
+            }
+        }
+
+        files.forEach(function (file) {
+            readPhotoFile(file, function (dataUrl) {
+                if (dataUrl) {
+                    person.photos.push(dataUrl);
+                } else {
+                    alert("\"" + (file.name || "pasted image") + "\" couldn't be opened. RAW camera files (CR2, NEF, DNG) aren't supported by browsers, so try a different format.");
+                }
+                oneDone();
+            });
+        });
+    }
+
+    document.addEventListener("paste", function (e) {
+        if (document.getElementById("page_details").classList.contains("hidden")) return;
+        if (!getCurrentPerson()) return;
+
+        const items = (e.clipboardData && e.clipboardData.items) || [];
+        const pastedFiles = [];
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf("image") === 0) {
+                pastedFiles.push(items[i].getAsFile());
+            }
+        }
+        if (pastedFiles.length > 0) {
+            e.preventDefault();
+            addPhotoFiles(pastedFiles);
+        }
+    });
+
+
+
+    function hasAny(list, ids) {
+        return (list || []).some(function (id) { return ids.indexOf(id) !== -1; });
+    }
+
+    function findPartners(person) {
+        const partners = [];
+
+        person.spouseIds.forEach(function (id) {
+            const s = getPersonById(id);
+            if (s) partners.push(s);
+        });
+
+      
+        people.forEach(function (other) {
+            if (other.id === person.id || partners.indexOf(other) !== -1) return;
+
+            const sharedChild = people.some(function (child) {
+                return (child.motherId === person.id && child.fatherId === other.id) ||
+                       (child.fatherId === person.id && child.motherId === other.id);
+            });
+
+            if (sharedChild) {
+                partners.push(other);
+            }
+        });
+        return partners;
+    }
+
+    function getChildrenOf(personId, partnerIds) {
+        return people.filter(function (p) {
+            return p.motherId === personId || p.fatherId === personId ||
+                   partnerIds.some(function (pid) { return p.motherId === pid || p.fatherId === pid; });
+        });
+    }
+
+
+
+
+    let treeView = { x: 0, y: 0, scale: 1 };
+    let mePosition = null;
+
+    function applyTreeView() {
+        document.getElementById("tree-container").style.transform =
+            "translate(" + treeView.x + "px," + treeView.y + "px) scale(" + treeView.scale + ")";
+    }
+
+    function zoomTree(factor, px, py) {
+        const viewport = document.getElementById("tree-viewport");
+        if (px === undefined) {
+            px = viewport.clientWidth / 2;
+            py = viewport.clientHeight / 2;
+        }
+        const newScale = Math.min(2.5, Math.max(0.2, treeView.scale * factor));
+        const real = newScale / treeView.scale;
+        treeView.x = px - (px - treeView.x) * real;
+        treeView.y = py - (py - treeView.y) * real;
+        treeView.scale = newScale;
+        applyTreeView();
+    }
+
+    function centerTreeOnMe() {
+        const viewport = document.getElementById("tree-viewport");
+        if (!mePosition) return;
+        treeView.scale = 1;
+        treeView.x = viewport.clientWidth / 2 - mePosition.x;
+        treeView.y = viewport.clientHeight / 2 - mePosition.y;
+        applyTreeView();
+    }
+
+    (function setupTreeZoom() {
+        const viewport = document.getElementById("tree-viewport");
+        viewport.addEventListener("wheel", function (e) {
+            e.preventDefault();
+            const rect = viewport.getBoundingClientRect();
+            zoomTree(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - rect.left, e.clientY - rect.top);
+        }, { passive: false });
+    })();
+
+
+
+    function buildBranch(personId, visited, skipKids) {
+        if (visited.indexOf(personId) !== -1) return null;
+
+        const person = getPersonById(personId);
+        const partners = findPartners(person);
+
+        const members = [person];
+        visited.push(person.id);
+        partners.forEach(function (p) {
+            if (visited.indexOf(p.id) === -1) {
+                members.push(p);
+                visited.push(p.id);
+            }
+        });
+
+        const memberSiblings = [];
+        const memberStepAncestors = [];
+        const memberAncestors = members.map(function (member) {
+            const parentId = member.fatherId !== null ? member.fatherId : member.motherId;
+
+       
+            const stepBranches = [];
+            [["stepmotherIds", "mother"], ["stepfatherIds", "father"]].forEach(function (pair) {
+                (member[pair[0]] || []).forEach(function (stepParentId) {
+                    if (getPersonById(stepParentId) && visited.indexOf(stepParentId) === -1) {
+                        const stepBranch = buildBranch(stepParentId, visited);
+                        if (stepBranch) {
+                            stepBranch.stepKind = pair[1];
+                            stepBranch.isStep = true;
+                            stepBranches.push(stepBranch);
+                        }
+                    }
+                });
+            });
+            memberStepAncestors.push(stepBranches);
+
+            if (parentId !== null && visited.indexOf(parentId) === -1) {
+                const ancestorBranch = buildBranch(parentId, visited);
+                if (ancestorBranch) {
+                    memberSiblings.push(ancestorBranch.children);
+                    ancestorBranch.children = [];
+                    return ancestorBranch;
+                }
+            }
+            memberSiblings.push([]);
+            return null;
+        });
+
+        const node = { members: members, memberAncestors: memberAncestors, memberStepAncestors: memberStepAncestors, memberSiblings: memberSiblings, children: [] };
+
+        if (!skipKids) {
+            const kids = getChildrenOf(person.id, members.slice(1).map(function (m) { return m.id; }));
+            kids.forEach(function (kid) {
+                if (visited.indexOf(kid.id) === -1) {
+                    const childBranch = buildBranch(kid.id, visited);
+                    if (childBranch) node.children.push(childBranch);
+                }
+            });
+        }
+
+        return node;
+    }
+
+    function aboveBranches(node, i) {
+        const list = [];
+        node.memberStepAncestors[i].forEach(function (stepBranch) {
+            if (stepBranch.stepKind === "mother") list.push(stepBranch);
+        });
+        if (node.memberAncestors[i]) list.push(node.memberAncestors[i]);
+        node.memberStepAncestors[i].forEach(function (stepBranch) {
+            if (stepBranch.stepKind === "father") list.push(stepBranch);
+        });
+        return list;
+    }
+
+    function assignRows(node, row) {
+        node.row = row;
+        node.members.forEach(function (m, i) {
+            aboveBranches(node, i).forEach(function (branch) { assignRows(branch, row - 1); });
+            node.memberSiblings[i].forEach(function (sib) { assignRows(sib, row); });
+        });
+        node.children.forEach(function (child) { assignRows(child, row + 1); });
+    }
+
+    function renderFamilyTree(){
+        const canvas = document.getElementById("tree-container");
+        canvas.innerHTML = "";
+        mePosition = null;
+
+        if(people.length === 0){
+            canvas.innerHTML = "<p style='color:#999999;'>No one has been added yet.</p>";
+            return;
+        }
+
+        const COUPLE_GAP = 40, SIBLING_GAP = 30, TREE_GAP = 90, ROW_GAP = 100, PAD = 60;
+
+        const probe = document.createElement("div");
+        probe.className = "tree-node";
+        probe.appendChild(buildPersonCard(people[0]));
+        canvas.appendChild(probe);
+        const NODE_W = Math.max(140, probe.firstChild.offsetWidth + 24);
+        canvas.removeChild(probe);
+
+        
+        const visited = [];
+        const rootNodes = [buildBranch(myID, visited)];
+
+ 
+        people.forEach(function (p) {
+            if (visited.indexOf(p.id) !== -1) return;
+            const motherOnTree = p.motherId !== null && getPersonById(p.motherId) && visited.indexOf(p.motherId) === -1;
+            const fatherOnTree = p.fatherId !== null && getPersonById(p.fatherId) && visited.indexOf(p.fatherId) === -1;
+            if (motherOnTree || fatherOnTree) return;
+            const branch = buildBranch(p.id, visited);
+            if (branch) rootNodes.push(branch);
+        });
+
+        people.forEach(function (p) {
+            if (visited.indexOf(p.id) === -1) {
+                const branch = buildBranch(p.id, visited);
+                if (branch) rootNodes.push(branch);
+            }
+        });
+
+        rootNodes.forEach(function (root) { assignRows(root, 0); });
+
+        
+      
+        function measure(node) {
+            node.memberColumnWidths = node.members.map(function (m, i) {
+                let aboveWidth = 0;
+                aboveBranches(node, i).forEach(function (branch, j) {
+                    measure(branch);
+                    aboveWidth += branch.width + (j > 0 ? SIBLING_GAP : 0);
+                });
+                return Math.max(NODE_W, aboveWidth);
+            });
+            node.unitWidth = node.memberColumnWidths.reduce(function (sum, w) { return sum + w; }, 0)
+                + (node.members.length - 1) * COUPLE_GAP;
+
+
+            // CHALLENGE #6: TO MAKE SURE THERE IS SPACE IN THE FAMILY TREE. I HAVE IMPLEMENTED 2 CATEGORIES FOR SIBLINGS. FOR THE LEFT SIB- WOULD HAVE SIBLINGS WOULD BE ASSOCIATED WITH FIRST MEMBER SIBLING WHILE THE RIGHT SIB- WOULD HAVE SIBLINGS ASSOCIATED WITH THEIR PARTNER.
+            node.leftSibs = node.memberSiblings[0] || [];
+            node.rightSibs = [].concat.apply([], node.memberSiblings.slice(1));
+            node.leftWidth = 0;
+            node.leftSibs.forEach(function (sib) { measure(sib); node.leftWidth += sib.width + SIBLING_GAP; });
+            node.rightWidth = 0;
+            node.rightSibs.forEach(function (sib) { measure(sib); node.rightWidth += sib.width + SIBLING_GAP; });
+
+            let total = 0;
+            node.children.forEach(function (child, i) {
+                measure(child);
+                total += child.width + (i > 0 ? SIBLING_GAP : 0);
+            });
+            node.childrenWidth = total;
+            node.selfWidth = Math.max(node.unitWidth, total);
+            node.width = node.leftWidth + node.selfWidth + node.rightWidth;
+        }
+
+        function place(node, left) {
+           
+            let sibLeft = left;
+            node.leftSibs.forEach(function (sib) { place(sib, sibLeft); sibLeft += sib.width + SIBLING_GAP; });
+            const selfLeft = left + node.leftWidth;
+            sibLeft = selfLeft + node.selfWidth + SIBLING_GAP;
+            node.rightSibs.forEach(function (sib) { place(sib, sibLeft); sibLeft += sib.width + SIBLING_GAP; });
+
+            let start = selfLeft + (node.selfWidth - node.childrenWidth) / 2;
+            node.children.forEach(function (child) {
+                place(child, start);
+                start += child.width + SIBLING_GAP;
+            });
+            if (node.children.length > 0) {
+                node.cx = (node.children[0].cx + node.children[node.children.length - 1].cx) / 2;
+                node.cx = Math.max(node.cx, selfLeft + node.unitWidth / 2);
+                node.cx = Math.min(node.cx, selfLeft + node.selfWidth - node.unitWidth / 2);
+            } else {
+                node.cx = selfLeft + node.selfWidth / 2;
+            }
+
+            const unitLeft = node.cx - node.unitWidth / 2;
+            let colX = unitLeft;
+            node.cardLefts = [];
+            node.members.forEach(function (m, i) {
+                const colW = node.memberColumnWidths[i];
+                node.cardLefts.push(colX + (colW - NODE_W) / 2);  
+                const above = aboveBranches(node, i);
+                let aboveWidth = 0;
+                above.forEach(function (branch, j) { aboveWidth += branch.width + (j > 0 ? SIBLING_GAP : 0); });
+                let aboveLeft = colX + (colW - aboveWidth) / 2;
+                above.forEach(function (branch) {
+                    place(branch, aboveLeft);
+                    aboveLeft += branch.width + SIBLING_GAP;
+                });
+                colX += colW + COUPLE_GAP;
+            });
+        }
+
+        const allNodes = [];
+        function collect(node) {
+            allNodes.push(node);
+            node.members.forEach(function (m, i) {
+                aboveBranches(node, i).forEach(function (branch) { collect(branch); });
+                node.memberSiblings[i].forEach(collect);
+            });
+            node.children.forEach(collect);
+        }
+
+        let cursor = 0;
+        rootNodes.forEach(function (root) {
+            measure(root);
+            place(root, cursor);
+            cursor += root.width + TREE_GAP;
+            collect(root);
+        });
+        const totalWidth = cursor - TREE_GAP;
+
+     
+        let minRow = 0;
+        allNodes.forEach(function (node) { minRow = Math.min(minRow, node.row); });
+        allNodes.forEach(function (node) { node.row = node.row - minRow; });
+
+
+        const spots = {};
+        const rowHeights = {};
+        allNodes.forEach(function (node) {
+            node.wraps = node.members.map(function (member, i) {
+                const wrap = document.createElement("div");
+                wrap.className = "tree-node";
+                wrap.style.width = NODE_W + "px";
+                wrap.style.left = (PAD + node.cardLefts[i]) + "px";
+                wrap.appendChild(buildPersonCard(member));
+                canvas.appendChild(wrap);
+                spots[member.id] = wrap;
+                rowHeights[node.row] = Math.max(rowHeights[node.row] || 0, wrap.offsetHeight);
+                return wrap;
+            });
+        });
+
+        const rowKeys = Object.keys(rowHeights).map(Number).sort(function (a, b) { return a - b; });
+        const rowTop = {};
+        let y = PAD;
+        rowKeys.forEach(function (r) {
+            rowTop[r] = y;
+            y += rowHeights[r] + ROW_GAP;
+        });
+        const totalHeight = y - ROW_GAP + PAD;
+
+        allNodes.forEach(function (node) {
+            node.wraps.forEach(function (wrap) { wrap.style.top = rowTop[node.row] + "px"; });
+        });
+
+        canvas.style.width = (totalWidth + PAD * 2) + "px";
+        canvas.style.height = totalHeight + "px";
+
+        
+        const NS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(NS, "svg");
+        svg.setAttribute("class", "tree-lines");
+        svg.setAttribute("width", totalWidth + PAD * 2);
+        svg.setAttribute("height", totalHeight);
+        canvas.insertBefore(svg, canvas.firstChild);
+
+        function addPath(d, dashed) {
+            const path = document.createElementNS(NS, "path");
+            path.setAttribute("d", d);
+            path.setAttribute("fill", "none");
+            path.setAttribute("stroke", "#8a8a8a");
+            path.setAttribute("stroke-width", "2");
+            path.setAttribute("stroke-linejoin", "round");
+            if (dashed) path.setAttribute("stroke-dasharray", "6 5");
+            svg.appendChild(path);
+        }
+        function centerX(wrap) { return wrap.offsetLeft + wrap.offsetWidth / 2; }
+
+        allNodes.forEach(function (node) {
+            const first = node.wraps[0];
+            const firstCard = first.firstChild;
+            let ax, ay;
+
+            if (node.members.length > 1) {
+                ay = first.offsetTop + firstCard.offsetHeight / 2;
+
+                for (let k = 0; k < node.wraps.length - 1; k++) {
+                    const a = node.wraps[k];
+                    const b = node.wraps[k + 1];
+                    const x1 = centerX(a) + a.firstChild.offsetWidth / 2;
+                    const x2 = centerX(b) - b.firstChild.offsetWidth / 2;
+                    addPath("M" + x1 + " " + ay + " H" + x2);
+                    if (k === 0) ax = (x1 + x2) / 2;
+                }
+            } else {
+                ax = centerX(first);
+                ay = first.offsetTop + firstCard.offsetHeight;
+            }
+
+            if (node.children.length > 0) {
+                const busY = rowTop[node.row] + rowHeights[node.row] + ROW_GAP / 2;
+                const targets = node.children.map(function (c) { return c.wraps[0]; });
+
+                let minX = ax, maxX = ax;
+                targets.forEach(function (t) {
+                    minX = Math.min(minX, centerX(t));
+                    maxX = Math.max(maxX, centerX(t));
+                });
+        
+                const stepLine = node.isStep ? true : false;
+                addPath("M" + ax + " " + ay + " V" + busY + " M" + minX + " " + busY + " H" + maxX, stepLine);
+                targets.forEach(function (t) {
+                    addPath("M" + centerX(t) + " " + busY + " V" + t.offsetTop, stepLine);
+                });
+            }
+
+            
+            node.members.forEach(function (m, i) {
+                const anc = node.memberAncestors[i];
+                if (anc) {
+                    const ancBottomY = rowTop[node.row - 1] + rowHeights[node.row - 1];
+                    const ancX = anc.members.length > 1
+                        ? (centerX(anc.wraps[0]) + centerX(anc.wraps[1])) / 2
+                        : centerX(anc.wraps[0]);
+
+                    const hangers = [node.wraps[i]].concat(node.memberSiblings[i].map(function (s) { return s.wraps[0]; }));
+                    hangers.forEach(function (myWrap) {
+                        const midY = ancBottomY + (myWrap.offsetTop - ancBottomY) / 2;
+                        addPath("M" + ancX + " " + ancBottomY + " V" + midY +
+                                " M" + ancX + " " + midY + " H" + centerX(myWrap) +
+                                " M" + centerX(myWrap) + " " + midY + " V" + myWrap.offsetTop);
+                    });
+                }
+
+                            
+                node.memberStepAncestors[i].forEach(function (stepAnc) {
+                    const stepBottomY = rowTop[node.row - 1] + rowHeights[node.row - 1];
+                    const stepX = stepAnc.members.length > 1
+                        ? (centerX(stepAnc.wraps[0]) + centerX(stepAnc.wraps[1])) / 2
+                        : centerX(stepAnc.wraps[0]);
+                    const stepIds = stepAnc.members.map(function (sm) { return sm.id; });
+                    const stepTargets = [node.wraps[i]].concat(node.memberSiblings[i].filter(function (sib) {
+                        const sibPerson = sib.members[0];
+                        return hasAny(sibPerson.stepmotherIds, stepIds) || hasAny(sibPerson.stepfatherIds, stepIds);
+                    }).map(function (sib) { return sib.wraps[0]; }));
+                    stepTargets.forEach(function (myWrap) {
+                        const midY = stepBottomY + (myWrap.offsetTop - stepBottomY) / 2;
+                        addPath("M" + stepX + " " + stepBottomY + " V" + midY +
+                                " M" + stepX + " " + midY + " H" + centerX(myWrap) +
+                                " M" + centerX(myWrap) + " " + midY + " V" + myWrap.offsetTop, true);
+                    });
+
+                    const stepParentPerson = stepAnc.members[0];
+                    const marriedToId = stepAnc.stepKind === "mother" ? m.fatherId : m.motherId;
+                    const stepWrap = spots[stepParentPerson.id];
+                    const marriedWrap = marriedToId !== null ? spots[marriedToId] : null;
+
+
+                    // CHALLENGE 5: I HAD IMPLEMENTED A WAY WHERE THE SECOND SPOUSE WOULD BE LOCATED IN THE LEFT SIDE THAN REPLACING THE ORIGINAL SPOUSE BY DRAWING A HORIZONTAL DASHED LINE FROM THE STEP PARENT TO THE ORIGINAL PARENT.
+                    if (stepWrap && marriedWrap) {
+                        const leftWrap = stepWrap.offsetLeft < marriedWrap.offsetLeft ? stepWrap : marriedWrap;
+                        const rightWrap = leftWrap === stepWrap ? marriedWrap : stepWrap;
+                        const gapStart = leftWrap.offsetLeft + leftWrap.offsetWidth;
+                        const gapEnd = rightWrap.offsetLeft;
+                        let blocked = false;
+                        Object.keys(spots).forEach(function (id) {
+                            const other = spots[id];
+                            if (other === leftWrap || other === rightWrap) return;
+                            if (other.offsetTop === leftWrap.offsetTop && other.offsetLeft + other.offsetWidth > gapStart && other.offsetLeft < gapEnd) blocked = true;
+                        });
+                        if (!blocked) {
+                            const lineY = leftWrap.offsetTop + leftWrap.firstChild.offsetHeight / 2;
+                            addPath("M" + (centerX(leftWrap) + leftWrap.firstChild.offsetWidth / 2) + " " + lineY +
+                                    " H" + (centerX(rightWrap) - rightWrap.firstChild.offsetWidth / 2), true);
+                        } else {
+                         
+                            const topY = leftWrap.offsetTop;
+                            addPath("M" + centerX(leftWrap) + " " + topY + " V" + (topY - 18) +
+                                    " H" + centerX(rightWrap) + " V" + topY, true);
+                        }
+                    }
+                });
+            });
+        });
+
+        if (spots[myID]) {
+            mePosition = {
+                x: centerX(spots[myID]),
+                y: spots[myID].offsetTop + spots[myID].offsetHeight / 2
+            };
+        }
+        centerTreeOnMe();
+    }
+
+    function buildPersonCard(person) {
+        const card = document.createElement("div");
+        card.className = "tree-card";
+        card.onclick = function() {
+            showDetailsPage(person.id);
+        };
+
+        let photoHTML;
+        if(person.photos.length > 0) {
+            photoHTML = '<div class="tree-photo" style="background-image:url(' + person.photos[0] + ');background-size:cover;background-position:center"></div>';
+        } else {
+            photoHTML = '<div class="tree-photo" style="background-color:' + person.color + '">' + getInitials(person.name) + '</div>';
+        }
+
+        card.innerHTML =
+        photoHTML +
+        '<div class="tree-pill">' +
+        '<div class="tree-name">' + escapeText(person.name) + '</div>' +
+        '<div class="tree-relation">' + escapeText(person.relation) + '</div>' +
+        '</div>';
+
+        return card;
+    }
+
+
+
+
+    function escapeText(text) {
+        if(!text) return "";
+        return text
+           .replace(/&/g, "&amp;")
+           .replace(/</g, "&lt;")
+           .replace(/>/g, "&gt;");
+    }
+
+   
+    loadData().then(function (saved) {
+        if (saved && saved.people && saved.people.length > 0) {
+            people = saved.people;
+            nextPersonId = saved.nextPersonId;
+       
+            people.forEach(function (p) {
+                if (!p.stepmotherIds) p.stepmotherIds = (p.stepmotherId != null) ? [p.stepmotherId] : [];
+                if (!p.stepfatherIds) p.stepfatherIds = (p.stepfatherId != null) ? [p.stepfatherId] : [];
+                if (!p.spouseIds) p.spouseIds = (p.spouseId != null) ? [p.spouseId] : [];
+                delete p.stepmotherId;
+                delete p.stepfatherId;
+                delete p.spouseId;
+            });
+        }
+        showPage("people");
+    });
+
+</script>
+
+</body>
+</html>
